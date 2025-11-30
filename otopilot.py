@@ -1,3 +1,4 @@
+import threading
 import tweepy
 import feedparser
 import requests
@@ -11,6 +12,7 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 from time import mktime
+from flask import Flask
 
 # =============================================================================
 # 🌍 PUBLIKSPOR V26 - CLEAN AUTH (GARANTİLİ BAĞLANTI)
@@ -445,10 +447,28 @@ def gorev_canli_skor():
         except Exception as e: print(f"⚠️ Skor Hatası: {e}")
 
 # --- BAŞLAT ---
+# --- SAHTE WEB SUNUCUSU (RENDER'I KANDIRMAK İÇİN) ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "PublikSpor Botu Calisiyor! 🚀"
+
+def run_flask():
+    # Render'ın verdiği portu dinle
+    app.run(host='0.0.0.0', port=10000)
+
+# --- BAŞLAT ---
 def programi_baslat():
-    print("🌍 PUBLIKSPOR V26 (CLEAN AUTH) Başlatıldı...")
+    print("🌍 PUBLIKSPOR V26 (CLOUD MODE) Başlatıldı...")
     
-    gorev_haber_taramasi()
+    # 1. Önce Sahte Sunucuyu Başlat (Ayrı kanalda)
+    t = threading.Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+    
+    # 2. Sonra Bot Görevlerini Başlat
+    gorev_haber_taramasi() # İlk tarama
     
     schedule.every(5).minutes.do(gorev_haber_taramasi)
     schedule.every(1).minutes.do(gorev_canli_skor)
