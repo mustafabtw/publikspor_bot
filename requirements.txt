@@ -1,0 +1,7 @@
+tweepy
+feedparser
+requests
+schedule
+google-generativeai
+beautifulsoup4
+Pillow
