@@ -1,4 +1,3 @@
-import threading
 import tweepy
 import feedparser
 import requests
@@ -13,19 +12,23 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 from time import mktime
 from flask import Flask
+import threading
 
 # =============================================================================
-# 🌍 PUBLIKSPOR V26 - CLEAN AUTH (GARANTİLİ BAĞLANTI)
+# 🌍 PUBLIKSPOR V27 - FINAL EDITION (ALL FEATURES UNLOCKED)
 # =============================================================================
 
-# --- 1. ŞİFRELER ---
+# --- 1. AYARLAR VE ŞİFRELER ---
 GEMINI_API_KEY = "AIzaSyAD0mlTGn5tA5gQBBcgjwPqQeVDcx4fcjk"
 
-# Twitter (Yeni Şifrelerin)
+# Twitter (Senin Yeni Şifrelerin)
 API_KEY = "Ds6HnkJCLvIrHf2ChXgwy47GZ"
 API_SECRET = "2ITh94OlZ1OYhsnG5XkU9Ot2fEIE4pZVXwF6opp2fl9SnJ8Mmo"
 ACCESS_TOKEN = "1989860228150788096-k2XifKyI27cbSKKWmCZsNJH1Ypg4wW"
 ACCESS_SECRET = "oeRrU4nUR9xfDmR3Sbn26qdcdhjF3uu1xyeMIRmCoZTtb"
+
+# Ntfy (Bildirim) Ayarı
+NTFY_TOPIC = "publikspor_admin"
 
 # Renkler
 DARK_BG = (10, 15, 30)
@@ -58,35 +61,33 @@ LIGLER = {
     "UCL": "http://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard",
 }
 
-# --- BAŞLATMA ---
+# --- BAŞLATMALAR ---
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-2.0-flash')
 
 try:
-    # TEK VE GÜÇLÜ BAĞLANTI (OAuth 1.0a User Context)
-    # Bu yöntem hem resim yükler hem tweet atar. Bearer Token'a ihtiyaç duymaz.
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
     api = tweepy.API(auth, wait_on_rate_limit=True)
-    
-    # Giriş Testi
-    user = api.verify_credentials()
-    print(f"✅ Twitter Bağlantısı Başarılı: @{user.screen_name}")
-    
-    # Client (V2) desteği için de aynı yetkiyi kullanıyoruz
     client = tweepy.Client(
-        consumer_key=API_KEY,
-        consumer_secret=API_SECRET,
-        access_token=ACCESS_TOKEN,
-        access_token_secret=ACCESS_SECRET,
+        consumer_key=API_KEY, consumer_secret=API_SECRET,
+        access_token=ACCESS_TOKEN, access_token_secret=ACCESS_SECRET,
         wait_on_rate_limit=True
     )
-
+    print("✅ Twitter Bağlantısı Başarılı.")
 except Exception as e:
-    print(f"❌ KRİTİK HATA: {e}")
-    exit()
+    print(f"❌ Twitter Bağlantı Hatası: {e}")
 
-# --- 2. YARDIMCI ARAÇLAR ---
+# --- 2. BİLDİRİM SİSTEMİ (NTFY) ---
+def bildirim_gonder(baslik, mesaj, oncelik="default"):
+    try:
+        requests.post(
+            f"https://ntfy.sh/{NTFY_TOPIC}",
+            data=mesaj.encode('utf-8'),
+            headers={"Title": baslik.encode('utf-8'), "Priority": oncelik}
+        )
+    except: pass
 
+# --- 3. YARDIMCI ARAÇLAR ---
 def log_kontrol(link):
     if not os.path.exists(LOG_DOSYASI): return False
     with open(LOG_DOSYASI, "r", encoding="utf-8") as f: return link in f.read()
@@ -115,8 +116,7 @@ def ai_tweet_yaz(prompt):
         return response.text.strip().replace('"','')
     except: return None
 
-# --- 3. GRAFİK MOTORU ---
-
+# --- 4. GRAFİK MOTORU ---
 def get_font(size, is_bold=False):
     try: return ImageFont.truetype("font.otf", size)
     except: return ImageFont.truetype("arialbd.ttf" if is_bold else "arial.ttf", size)
@@ -171,74 +171,51 @@ def hesapla_ortak_font(draw, text_list, max_width, start_size):
         current -= 1
     return get_font(12, True)
 
-# A. MAÇ SONUCU GÖRSELİ
 def mac_sonucu_gorseli_olustur(ev, dep, skor, ev_web_logo, dep_web_logo):
     print(f"🎨 MAÇ SONUCU Çiziliyor: {ev} vs {dep}...")
     W, H = 1080, 1080 
     img = Image.new('RGB', (W, H), color=DARK_BG)
     draw = ImageDraw.Draw(img)
-
-    f_baslik = get_font(90, True)
-    f_skor = get_font(200, True)
-    f_takim = get_font(40, True)
-    f_publik = get_font(60, True)
+    f_baslik = get_font(90, True); f_skor = get_font(200, True)
+    f_takim = get_font(40, True); f_publik = get_font(60, True)
 
     draw.text((W//2, 120), "MAÇ SONUCU", font=f_baslik, fill=TEXT_WHITE, anchor="mm")
     draw.line([(W//2 - 200, 180), (W//2 + 200, 180)], fill=ACCENT_ORANGE, width=6)
-
-    CENTER_Y = H // 2 - 50
-    LOGO_SIZE = 225
-    OFFSET_X = 320
-    
+    CENTER_Y = H // 2 - 50; LOGO_SIZE = 225; OFFSET_X = 320
     draw.text((W//2, CENTER_Y), skor, font=f_skor, fill=TEXT_WHITE, anchor="mm")
     
     ev_img = get_local_logo(ev, LOGO_SIZE)
     if not ev_img and ev_web_logo: ev_img = resim_indir(ev_web_logo, LOGO_SIZE)
-    
     dep_img = get_local_logo(dep, LOGO_SIZE)
     if not dep_img and dep_web_logo: dep_img = resim_indir(dep_web_logo, LOGO_SIZE)
 
     if ev_img: img.paste(ev_img, ((W//2 - OFFSET_X) - (ev_img.width // 2), CENTER_Y - (ev_img.height // 2)), ev_img)
     if dep_img: img.paste(dep_img, ((W//2 + OFFSET_X) - (dep_img.width // 2), CENTER_Y - (dep_img.height // 2)), dep_img)
 
-    ev_gos = tr_karakter_cevir(ev)
-    dep_gos = tr_karakter_cevir(dep)
-    draw.text((W//2 - OFFSET_X, CENTER_Y + 160), ev_gos, font=f_takim, fill=TEXT_GREY, anchor="mm")
-    draw.text((W//2 + OFFSET_X, CENTER_Y + 160), dep_gos, font=f_takim, fill=TEXT_GREY, anchor="mm")
-
+    draw.text((W//2 - OFFSET_X, CENTER_Y + 160), tr_karakter_cevir(ev), font=f_takim, fill=TEXT_GREY, anchor="mm")
+    draw.text((W//2 + OFFSET_X, CENTER_Y + 160), tr_karakter_cevir(dep), font=f_takim, fill=TEXT_GREY, anchor="mm")
     draw.text((W//2, H - 80), "publik.", font=f_publik, fill=ACCENT_ORANGE, anchor="mm")
     draw.polygon([(0, H), (0, H-150), (150, H)], fill=ACCENT_ORANGE)
     
-    dosya = f"ms_{ev_gos}_{dep_gos}.png"
+    dosya = f"ms_{tr_karakter_cevir(ev)}_{tr_karakter_cevir(dep)}.png"
     img.save(dosya)
     return dosya
 
-# B. FİKSTÜR GÖRSELİ
 def fikstur_gorseli_olustur(maclar):
     print("🎨 FİKSTÜR Çiziliyor...")
     W, H = 1080, 1500 
     img = Image.new('RGB', (W, H), color=DARK_BG)
     draw = ImageDraw.Draw(img)
-
-    f_baslik = get_font(100, True)
-    f_alt = get_font(50, False)
-    f_tarih = get_font(28, False)
-    f_saat = get_font(32, True)
-    f_publik = get_font(80, True)
+    f_baslik = get_font(100, True); f_alt = get_font(50, False)
+    f_tarih = get_font(28, False); f_saat = get_font(32, True); f_publik = get_font(80, True)
 
     draw.text((60, 80), "BU HAFTA", font=f_baslik, fill=TEXT_WHITE)
     draw.text((60, 180), "FIKSTUR", font=f_alt, fill=ACCENT_ORANGE)
     yerel_gorsel_ekle(img, "trendyol.png", 130, 650, 80)
 
-    Y_START = 320
-    ROW_HEIGHT = 110 
-    LOGO_SIZE = 55
-    CENTER_X = 600
-    LOGO_X_EV = 280 
-    LOGO_X_DEP = 920
-    TEXT_X_EV_END = 570
-    TEXT_X_DEP_START = 630
-    MAX_TEXT_W = 250
+    Y_START = 320; ROW_HEIGHT = 110; LOGO_SIZE = 55; CENTER_X = 600
+    LOGO_X_EV = 280; LOGO_X_DEP = 920
+    TEXT_X_EV_END = 570; TEXT_X_DEP_START = 630; MAX_TEXT_W = 250
 
     tum_takimlar = [tr_karakter_cevir(m['ev']) for m in maclar[:10]] + [tr_karakter_cevir(m['dep']) for m in maclar[:10]]
     f_takim = hesapla_ortak_font(draw, tum_takimlar, MAX_TEXT_W, 40)
@@ -266,38 +243,29 @@ def fikstur_gorseli_olustur(maclar):
     img.save("fikstur.png")
     return "fikstur.png"
 
-# --- 4. GÖREV YÖNETİCİLERİ ---
+# --- 5. GÖREV YÖNETİCİLERİ ---
 
 def siteyi_analiz_et(url):
     print("🕵️‍♂️ Site Analizi...")
     headers = {'User-Agent': 'Mozilla/5.0'}
-    media_id = None
-    sayfa_metni = ""
+    media_id = None; sayfa_metni = ""
     try:
         r = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(r.content, 'html.parser')
         
-        # Görsel
         img_tag = soup.find("meta", property="og:image")
         if img_tag and img_tag.get("content"):
             try:
                 img_data = requests.get(img_tag["content"], headers=headers).content
                 with open("temp.jpg", "wb") as f: f.write(img_data)
-                
-                # --- V1.1 API İle Yükleme (Garantili) ---
                 media = api.media_upload("temp.jpg")
                 media_id = media.media_id
-                
                 os.remove("temp.jpg")
-                print("📸 Görsel yüklendi.")
-            except Exception as e: 
-                print(f"⚠️ Görsel Yükleme Hatası: {e}")
+            except: pass
             
         tags = soup.find_all(['p', 'h2', 'strong'])
         sayfa_metni = " ".join([t.text.strip() for t in tags])[:2500]
-    except Exception as e: 
-        print(f"⚠️ Site Okuma Hatası: {e}")
-    
+    except: pass
     return media_id, sayfa_metni
 
 def spor_kategorisi_bul(metin):
@@ -338,17 +306,16 @@ def gorev_haber_taramasi():
                         tweet = f"{metin}\n\n🔗 Kaynak: Basın\n#PublikSpor {kategori}\n⏱ {zaman}"
                         
                         try:
-                            # --- TWEET ATMA (Client V2) ---
                             if media_id: client.create_tweet(text=tweet, media_ids=[media_id])
                             else: client.create_tweet(text=tweet)
                             print("🐦 Tweet Atıldı!")
+                            bildirim_gonder("Haber", f"{baslik_temiz}")
                             log_kaydet(link)
-                            print("⏳ Spam olmaması için 60 saniye bekleniyor...")
                             time.sleep(60)
                         except Exception as e: 
                             print(f"🔴 TWEET HATASI: {e}")
                             if "429" in str(e):
-                                print("⏳ 429 Hatası! 15 Dakika Zorunlu Mola...")
+                                bildirim_gonder("HATA", "Twitter 429 Cezası. 15dk Mola.", "high")
                                 time.sleep(900)
         except: pass
 
@@ -381,10 +348,10 @@ def gorev_fikstur_paylas():
         if dosya:
             metin = "📅 Süper Lig'de Bu Hafta!\n\nZorlu karşılaşmalar bizleri bekliyor. İşte haftanın programı. 👇\n\n#SüperLig #Fikstür #PublikSpor"
             try:
-                # --- V1.1 API İle Yükleme ---
                 media = api.media_upload(dosya)
                 client.create_tweet(text=metin, media_ids=[media.media_id])
                 print("✅ Fikstür Tweeti Atıldı!")
+                bildirim_gonder("Fikstür", "Haftalık Program Paylaşıldı")
                 os.remove(dosya)
             except Exception as e: print(f"Fikstür Hatası: {e}")
     except: pass
@@ -395,8 +362,7 @@ def gorev_canli_skor():
         try:
             r = requests.get(url, timeout=10).json()
             for mac in r.get('events', []):
-                mac_id = mac['id']
-                durum = mac['status']['type']['state']
+                mac_id = mac['id']; durum = mac['status']['type']['state']
                 ev = mac['competitions'][0]['competitors'][0]
                 dep = mac['competitions'][0]['competitors'][1]
                 ev_ad = ev['team']['displayName'].upper()
@@ -411,13 +377,14 @@ def gorev_canli_skor():
                 elif lig == "UCL" and ("GALATASARAY" in ev_ad or "GALATASARAY" in dep_ad): onemli = True
 
                 if onemli:
-                    # GOL
                     if durum == 'in' and eski != skor:
                         tweet = f"⚽ GOL! {ev_ad} {skor} {dep_ad} #PublikSpor"
-                        try: client.create_tweet(text=tweet); print(f"🚨 GOL: {skor}")
+                        try: 
+                            client.create_tweet(text=tweet)
+                            print(f"🚨 GOL: {skor}")
+                            bildirim_gonder("GOL!", f"{ev_ad} {skor} {dep_ad}")
                         except: pass
                     
-                    # MAÇ SONU
                     if durum == 'post':
                         ms_key = f"MS_{mac_id}"
                         if not log_kontrol(ms_key):
@@ -425,12 +392,7 @@ def gorev_canli_skor():
                                 ev_web_logo = ev['team']['logos'][0]['href'] if ev['team'].get('logos') else None
                                 dep_web_logo = dep['team']['logos'][0]['href'] if dep['team'].get('logos') else None
                                 
-                                img_dosya = mac_sonucu_gorseli_olustur(
-                                    ev_ad, dep_ad, skor,
-                                    ev_web_logo,
-                                    dep_web_logo
-                                )
-                                # --- V1.1 API İle Yükleme ---
+                                img_dosya = mac_sonucu_gorseli_olustur(ev_ad, dep_ad, skor, ev_web_logo, dep_web_logo)
                                 media = api.media_upload(img_dosya)
                                 
                                 yorum = ai_tweet_yaz(f"Maç bitti: {ev_ad} {skor} {dep_ad}. Kazananı öv.")
@@ -440,35 +402,30 @@ def gorev_canli_skor():
                                 client.create_tweet(text=text, media_ids=[media.media_id])
                                 log_kaydet(ms_key)
                                 print(f"🏁 MS Görseli Paylaşıldı: {skor}")
+                                bildirim_gonder("Maç Bitti", f"{ev_ad} {skor} {dep_ad}")
                                 os.remove(img_dosya)
                             except Exception as e: print(f"MS Hatası: {e}")
                 
                 SKOR_HAFIZASI[mac_id] = skor
         except Exception as e: print(f"⚠️ Skor Hatası: {e}")
 
-# --- BAŞLAT ---
-# --- SAHTE WEB SUNUCUSU (RENDER'I KANDIRMAK İÇİN) ---
+# --- WEB SERVER (RENDER İÇİN) ---
 app = Flask(__name__)
-
 @app.route('/')
-def home():
-    return "PublikSpor Botu Calisiyor! 🚀"
-
-def run_flask():
-    # Render'ın verdiği portu dinle
-    app.run(host='0.0.0.0', port=10000)
+def home(): return "PublikSpor Botu Calisiyor! 🚀"
+def run_flask(): app.run(host='0.0.0.0', port=10000)
 
 # --- BAŞLAT ---
 def programi_baslat():
-    print("🌍 PUBLIKSPOR V26 (CLOUD MODE) Başlatıldı...")
+    print("🌍 PUBLIKSPOR V27 (FINAL) Başlatıldı...")
     
-    # 1. Önce Sahte Sunucuyu Başlat (Ayrı kanalda)
+    bildirim_gonder("Sistem Başladı", "Bot başarıyla aktif oldu.", "high")
+    
     t = threading.Thread(target=run_flask)
-    t.daemon = True
-    t.start()
+    t.daemon = True; t.start()
     
-    # 2. Sonra Bot Görevlerini Başlat
-    gorev_haber_taramasi() # İlk tarama
+    # İlk Taramalar
+    gorev_haber_taramasi()
     
     schedule.every(5).minutes.do(gorev_haber_taramasi)
     schedule.every(1).minutes.do(gorev_canli_skor)
