@@ -275,6 +275,7 @@ def spor_kategorisi_bul(metin):
     if any(x in m for x in ["f1", "formula", "yarış"]): return "#F1"
     return "#Futbol"
 
+# --- GÜNCELLENMİŞ VE ZIRHLI HABER FONKSİYONU ---
 def gorev_haber_taramasi():
     print(f"📰 [{datetime.datetime.now().strftime('%H:%M')}] Haberler Taranıyor...")
     for url in RSS_KAYNAKLARI:
@@ -290,7 +291,16 @@ def gorev_haber_taramasi():
                     if any(x.lower() in baslik.lower() for x in VIP_ANAHTARLAR):
                         print(f"🆕 Haber: {baslik}")
                         baslik_temiz = clickbait_temizle(baslik)
-                        media_id, site_icerigi = siteyi_analiz_et(link)
+                        
+                        # --- GÜVENLİ RESİM İNDİRME ---
+                        media_id = None
+                        site_icerigi = ""
+                        try:
+                            # Önce siteye git, metni al
+                            media_id, site_icerigi = siteyi_analiz_et(link)
+                        except Exception as e:
+                            print(f"⚠️ Site Analiz Hatası: {e} (Devam ediliyor...)")
+
                         kategori = spor_kategorisi_bul(baslik_temiz + site_icerigi)
                         
                         prompt = f"""
@@ -306,21 +316,33 @@ def gorev_haber_taramasi():
                         tweet = f"{metin}\n\n🔗 Kaynak: Basın\n#PublikSpor {kategori}\n⏱ {zaman}"
                         
                         try:
-                            if media_id: client.create_tweet(text=tweet, media_ids=[media_id])
-                            else: client.create_tweet(text=tweet)
-                            print("🐦 Tweet Atıldı!")
-                            bildirim_gonder("Haber", f"{baslik_temiz}")
-                            log_kaydet(link)
+                            # --- TWEET ATMA DENEMESİ ---
+                            if media_id: 
+                                client.create_tweet(text=tweet, media_ids=[media_id])
+                            else: 
+                                client.create_tweet(text=tweet)
+                                
+                            print("🐦 Tweet BAŞARIYLA Atıldı!")
+                            log_kaydet(link) # Başarılıysa kaydet
+                            
+                            # Anti-Ban Beklemesi
+                            print("⏳ Spam olmaması için 60 saniye bekleniyor...")
                             time.sleep(60)
+                            
                         except Exception as e: 
                             print(f"🔴 TWEET HATASI: {e}")
+                            
+                            # --- KRİTİK DEĞİŞİKLİK BURASI ---
+                            # Eğer bağlantı hatası veya 429 varsa, bu haberi LANETLİ say ve geç.
+                            # Bir daha denememek için loga kaydediyoruz.
+                            print("⚠️ Bu haber sorunlu, atlanıyor ve loga işleniyor...")
+                            log_kaydet(link) 
+                            
                             if "429" in str(e):
-                                bildirim_gonder("HATA", "429 Cezası Alındı. Bu haber PAS GEÇİLİYOR ve 15 dk bekleniyor...", "high")
-
-                                log_kaydet(link)
-
+                                print("⏳ 429 Hatası! 15 Dakika Zorunlu Mola...")
                                 time.sleep(900)
-        except: pass
+        except Exception as e:
+            print(f"Genel Döngü Hatası: {e}")
 
 def gorev_fikstur_paylas():
     print("📅 Fikstür Verisi Alınıyor...")
