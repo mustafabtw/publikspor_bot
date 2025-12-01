@@ -315,7 +315,10 @@ def gorev_haber_taramasi():
                         except Exception as e: 
                             print(f"🔴 TWEET HATASI: {e}")
                             if "429" in str(e):
-                                bildirim_gonder("HATA", "Twitter 429 Cezası. 15dk Mola.", "high")
+                                bildirim_gonder("HATA", "429 Cezası Alındı. Bu haber PAS GEÇİLİYOR ve 15 dk bekleniyor...", "high")
+
+                                log_kaydet(link)
+
                                 time.sleep(900)
         except: pass
 
