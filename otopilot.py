@@ -66,12 +66,19 @@ genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-2.0-flash')
 
 try:
+    # V1.1 Bağlantısı
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
-    api = tweepy.API(auth, wait_on_rate_limit=True)
+    
+    # DİKKAT: Burayı False yapıyoruz ki hata verince donsun kalmasın, bizim koda düşsün.
+    api = tweepy.API(auth, wait_on_rate_limit=False) 
+
+    # V2 Bağlantısı
     client = tweepy.Client(
         consumer_key=API_KEY, consumer_secret=API_SECRET,
         access_token=ACCESS_TOKEN, access_token_secret=ACCESS_SECRET,
-        wait_on_rate_limit=True
+        
+        # DİKKAT: Burayı da False yapıyoruz.
+        wait_on_rate_limit=False
     )
     print("✅ Twitter Bağlantısı Başarılı.")
 except Exception as e:
