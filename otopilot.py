@@ -6,6 +6,7 @@ import schedule
 import datetime
 import os
 import re
+import html # HTML karakterleri düzeltmek için
 import google.generativeai as genai
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
@@ -15,19 +16,19 @@ from flask import Flask
 import threading
 
 # =============================================================================
-# 🌍 PUBLIKSPOR V27 - FINAL EDITION (ALL FEATURES UNLOCKED)
+# 🌍 PUBLIKSPOR V30 - PLATINUM EDITION (HER ŞEY DAHİL & DÜZELTİLMİŞ)
 # =============================================================================
 
 # --- 1. AYARLAR VE ŞİFRELER ---
 GEMINI_API_KEY = "AIzaSyAD0mlTGn5tA5gQBBcgjwPqQeVDcx4fcjk"
 
-# Twitter (Senin Yeni Şifrelerin)
+# Twitter
 API_KEY = "Ds6HnkJCLvIrHf2ChXgwy47GZ"
 API_SECRET = "2ITh94OlZ1OYhsnG5XkU9Ot2fEIE4pZVXwF6opp2fl9SnJ8Mmo"
 ACCESS_TOKEN = "1989860228150788096-k2XifKyI27cbSKKWmCZsNJH1Ypg4wW"
 ACCESS_SECRET = "oeRrU4nUR9xfDmR3Sbn26qdcdhjF3uu1xyeMIRmCoZTtb"
 
-# Ntfy (Bildirim) Ayarı
+# Ntfy (Bildirim)
 NTFY_TOPIC = "publikspor_admin"
 
 # Renkler
@@ -53,7 +54,7 @@ VIP_ANAHTARLAR = [
     "Arda Güler", "Kenan Yıldız", "Icardi", "Osimhen", "Mourinho", 
     "Voleybol", "Filenin Sultanları", "Ebrar Karakurt", "Vargas",
     "Basketbol", "Anadolu Efes", "Fenerbahçe Beko", "Ergin Ataman",
-    "F1", "Hamilton", "Verstappen"
+    "F1", "Hamilton", "Verstappen", "Nihat Kahveci", "Rıdvan Dilmen", "Sergen Yalçın"
 ]
 
 LIGLER = {
@@ -66,19 +67,12 @@ genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-2.0-flash')
 
 try:
-    # V1.1 Bağlantısı
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
-    
-    # DİKKAT: Burayı False yapıyoruz ki hata verince donsun kalmasın, bizim koda düşsün.
-    api = tweepy.API(auth, wait_on_rate_limit=False) 
-
-    # V2 Bağlantısı
+    api = tweepy.API(auth, wait_on_rate_limit=True)
     client = tweepy.Client(
         consumer_key=API_KEY, consumer_secret=API_SECRET,
         access_token=ACCESS_TOKEN, access_token_secret=ACCESS_SECRET,
-        
-        # DİKKAT: Burayı da False yapıyoruz.
-        wait_on_rate_limit=False
+        wait_on_rate_limit=True
     )
     print("✅ Twitter Bağlantısı Başarılı.")
 except Exception as e:
@@ -102,7 +96,14 @@ def log_kontrol(link):
 def log_kaydet(link):
     with open(LOG_DOSYASI, "a", encoding="utf-8") as f: f.write(link + "\n")
 
+def turkiye_saati():
+    utc_now = datetime.datetime.utcnow()
+    tr_now = utc_now + datetime.timedelta(hours=3)
+    return tr_now.strftime('%H:%M')
+
 def clickbait_temizle(metin):
+    # HTML Temizliği
+    metin = html.unescape(metin)
     yasakli = ["CANLI İZLE", "ŞİFRESİZ", "BEDAVA", "DONMADAN", "LİNK", "TIKLA", "İZLE", "JUSTIN TV"]
     temiz = metin
     for y in yasakli:
@@ -122,6 +123,20 @@ def ai_tweet_yaz(prompt):
         response = model.generate_content(prompt)
         return response.text.strip().replace('"','')
     except: return None
+
+def kisaltma_bul(takim):
+    t = tr_karakter_cevir(takim)
+    if "FENER" in t: return "FB"
+    if "GALATA" in t: return "GS"
+    if "BESIKTAS" in t: return "BJK"
+    if "TRABZON" in t: return "TS"
+    if "SAMSUN" in t: return "SAM"
+    if "GOZTEPE" in t: return "GOZ"
+    if "ANTALYA" in t: return "ANT"
+    return t[:3]
+
+def mac_hashtag(ev, dep):
+    return f"#{kisaltma_bul(ev)}v{kisaltma_bul(dep)}"
 
 # --- 4. GRAFİK MOTORU ---
 def get_font(size, is_bold=False):
@@ -253,7 +268,7 @@ def fikstur_gorseli_olustur(maclar):
 # --- 5. GÖREV YÖNETİCİLERİ ---
 
 def siteyi_analiz_et(url):
-    print("🕵️‍♂️ Site Analizi...")
+    print("🕵️‍♂️ Site Analizi (Derin Okuma)...")
     headers = {'User-Agent': 'Mozilla/5.0'}
     media_id = None; sayfa_metni = ""
     try:
@@ -270,9 +285,11 @@ def siteyi_analiz_et(url):
                 os.remove("temp.jpg")
             except: pass
             
-        tags = soup.find_all(['p', 'h2', 'strong'])
-        sayfa_metni = " ".join([t.text.strip() for t in tags])[:2500]
-    except: pass
+        tags = soup.find_all(['p', 'h1', 'h2', 'article', 'div'])
+        metinler = [t.text.strip() for t in tags if len(t.text.strip()) > 20]
+        sayfa_metni = " ".join(metinler)[:3000]
+        
+    except Exception as e: print(f"Site Hatası: {e}")
     return media_id, sayfa_metni
 
 def spor_kategorisi_bul(metin):
@@ -282,74 +299,52 @@ def spor_kategorisi_bul(metin):
     if any(x in m for x in ["f1", "formula", "yarış"]): return "#F1"
     return "#Futbol"
 
-# --- GÜNCELLENMİŞ VE ZIRHLI HABER FONKSİYONU ---
 def gorev_haber_taramasi():
-    print(f"📰 [{datetime.datetime.now().strftime('%H:%M')}] Haberler Taranıyor...")
+    print(f"📰 [{turkiye_saati()}] Haberler Taranıyor...")
     for url in RSS_KAYNAKLARI:
         try:
             feed = feedparser.parse(requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}).content)
             for haber in feed.entries[:2]:
                 if hasattr(haber, 'published_parsed') and not haber_taze_mi(haber.published_parsed): continue
                 
-                baslik = haber.title
-                link = haber.link
-                
+                baslik = haber.title; link = haber.link
                 if not log_kontrol(link):
                     if any(x.lower() in baslik.lower() for x in VIP_ANAHTARLAR):
                         print(f"🆕 Haber: {baslik}")
                         baslik_temiz = clickbait_temizle(baslik)
-                        
-                        # --- GÜVENLİ RESİM İNDİRME ---
-                        media_id = None
-                        site_icerigi = ""
-                        try:
-                            # Önce siteye git, metni al
-                            media_id, site_icerigi = siteyi_analiz_et(link)
-                        except Exception as e:
-                            print(f"⚠️ Site Analiz Hatası: {e} (Devam ediliyor...)")
-
+                        media_id, site_icerigi = siteyi_analiz_et(link)
                         kategori = spor_kategorisi_bul(baslik_temiz + site_icerigi)
                         
                         prompt = f"""
-                        Sen profesyonel spor spikerisin. Bu haberi Twitter için TEK CÜMLEDE, akıcı yaz.
-                        Haber: {baslik_temiz}
-                        Detay: {site_icerigi}
-                        KURALLAR: Robot gibi olma. Soru sorma. Emoji abartma. Şifresiz/Link yazma.
+                        Sen profesyonel spor muhabirisin. Haberi Twitter için özetle.
+                        Başlık: {baslik_temiz}
+                        Detaylar: {site_icerigi}
+                        KURALLAR:
+                        1. KİM, KİME, NE DEDİ? Bu detayları ver.
+                        2. Başlığı kopyalama, içeriği yaz.
+                        3. Soru sorma. Robot olma. Akıcı yaz.
+                        4. Emoji abartma.
                         """
+                        
                         metin = ai_tweet_yaz(prompt)
                         if not metin: metin = baslik_temiz
                         
-                        zaman = datetime.datetime.now().strftime('%H:%M')
+                        zaman = turkiye_saati()
                         tweet = f"{metin}\n\n🔗 Kaynak: Basın\n#PublikSpor {kategori}\n⏱ {zaman}"
                         
                         try:
-                            # --- TWEET ATMA DENEMESİ ---
-                            if media_id: 
-                                client.create_tweet(text=tweet, media_ids=[media_id])
-                            else: 
-                                client.create_tweet(text=tweet)
-                                
-                            print("🐦 Tweet BAŞARIYLA Atıldı!")
-                            log_kaydet(link) # Başarılıysa kaydet
-                            
-                            # Anti-Ban Beklemesi
-                            print("⏳ Spam olmaması için 60 saniye bekleniyor...")
+                            if media_id: client.create_tweet(text=tweet, media_ids=[media_id])
+                            else: client.create_tweet(text=tweet)
+                            print("🐦 Tweet Atıldı!")
+                            bildirim_gonder("Haber", f"{baslik_temiz}")
+                            log_kaydet(link)
                             time.sleep(60)
-                            
                         except Exception as e: 
                             print(f"🔴 TWEET HATASI: {e}")
-                            
-                            # --- KRİTİK DEĞİŞİKLİK BURASI ---
-                            # Eğer bağlantı hatası veya 429 varsa, bu haberi LANETLİ say ve geç.
-                            # Bir daha denememek için loga kaydediyoruz.
-                            print("⚠️ Bu haber sorunlu, atlanıyor ve loga işleniyor...")
-                            log_kaydet(link) 
-                            
                             if "429" in str(e):
-                                print("⏳ 429 Hatası! 15 Dakika Zorunlu Mola...")
+                                bildirim_gonder("HATA", "Twitter 429 Cezası. 15dk Mola.", "high")
                                 time.sleep(900)
-        except Exception as e:
-            print(f"Genel Döngü Hatası: {e}")
+        except: pass
 
 def gorev_fikstur_paylas():
     print("📅 Fikstür Verisi Alınıyor...")
@@ -389,7 +384,7 @@ def gorev_fikstur_paylas():
     except: pass
 
 def gorev_canli_skor():
-    print(f"⚽ [{datetime.datetime.now().strftime('%H:%M')}] Skorlar Kontrol Ediliyor...")
+    print(f"⚽ [{turkiye_saati()}] Skorlar...")
     for lig, url in LIGLER.items():
         try:
             r = requests.get(url, timeout=10).json()
@@ -410,36 +405,34 @@ def gorev_canli_skor():
 
                 if onemli:
                     if durum == 'in' and eski != skor:
-                        tweet = f"⚽ GOL! {ev_ad} {skor} {dep_ad} #PublikSpor"
+                        tag = mac_hashtag(ev_ad, dep_ad)
+                        tweet = f"⚽ GOL! {ev_ad} {skor} {dep_ad} #PublikSpor {tag}"
                         try: 
                             client.create_tweet(text=tweet)
                             print(f"🚨 GOL: {skor}")
-                            bildirim_gonder("GOL!", f"{ev_ad} {skor} {dep_ad}")
+                            bildirim_gonder("GOL!", f"{ev_ad} {skor} {dep_ad}", "high")
                         except: pass
                     
                     if durum == 'post':
                         ms_key = f"MS_{mac_id}"
                         if not log_kontrol(ms_key):
                             try:
-                                ev_web_logo = ev['team']['logos'][0]['href'] if ev['team'].get('logos') else None
-                                dep_web_logo = dep['team']['logos'][0]['href'] if dep['team'].get('logos') else None
-                                
-                                img_dosya = mac_sonucu_gorseli_olustur(ev_ad, dep_ad, skor, ev_web_logo, dep_web_logo)
+                                ev_wl = ev['team']['logos'][0]['href'] if ev['team'].get('logos') else None
+                                dep_wl = dep['team']['logos'][0]['href'] if dep['team'].get('logos') else None
+                                img_dosya = mac_sonucu_gorseli_olustur(ev_ad, dep_ad, skor, ev_wl, dep_wl)
                                 media = api.media_upload(img_dosya)
-                                
                                 yorum = ai_tweet_yaz(f"Maç bitti: {ev_ad} {skor} {dep_ad}. Kazananı öv.")
                                 if not yorum: yorum = "Maç sona erdi."
-                                
-                                text = f"🏁 MAÇ SONUCU\n\n{ev_ad} {skor} {dep_ad}\n\n🗣️ {yorum}\n#PublikSpor"
+                                tag = mac_hashtag(ev_ad, dep_ad)
+                                text = f"🏁 MAÇ SONUCU\n\n{ev_ad} {skor} {dep_ad}\n\n🗣️ {yorum}\n#PublikSpor {tag}"
                                 client.create_tweet(text=text, media_ids=[media.media_id])
                                 log_kaydet(ms_key)
                                 print(f"🏁 MS Görseli Paylaşıldı: {skor}")
                                 bildirim_gonder("Maç Bitti", f"{ev_ad} {skor} {dep_ad}")
                                 os.remove(img_dosya)
                             except Exception as e: print(f"MS Hatası: {e}")
-                
                 SKOR_HAFIZASI[mac_id] = skor
-        except Exception as e: print(f"⚠️ Skor Hatası: {e}")
+        except: pass
 
 # --- WEB SERVER (RENDER İÇİN) ---
 app = Flask(__name__)
@@ -449,14 +442,13 @@ def run_flask(): app.run(host='0.0.0.0', port=10000)
 
 # --- BAŞLAT ---
 def programi_baslat():
-    print("🌍 PUBLIKSPOR V27 (FINAL) Başlatıldı...")
+    print("🌍 PUBLIKSPOR V30 (PLATINUM) Başlatıldı...")
     
     bildirim_gonder("Sistem Başladı", "Bot başarıyla aktif oldu.", "high")
     
     t = threading.Thread(target=run_flask)
     t.daemon = True; t.start()
     
-    # İlk Taramalar
     gorev_haber_taramasi()
     
     schedule.every(5).minutes.do(gorev_haber_taramasi)
@@ -464,9 +456,7 @@ def programi_baslat():
     schedule.every().friday.at("09:00").do(gorev_fikstur_paylas)
     
     while True:
-        try:
-            schedule.run_pending()
-            time.sleep(1)
+        try: schedule.run_pending(); time.sleep(1)
         except KeyboardInterrupt:
             print("\n🛑 Bot durduruldu.")
             break
