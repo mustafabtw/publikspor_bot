@@ -6,7 +6,7 @@ import schedule
 import datetime
 import os
 import re
-import html # HTML karakterleri düzeltmek için
+import html
 import google.generativeai as genai
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
@@ -16,7 +16,7 @@ from flask import Flask
 import threading
 
 # =============================================================================
-# 🌍 PUBLIKSPOR V30 - PLATINUM EDITION (HER ŞEY DAHİL & DÜZELTİLMİŞ)
+# 🌍 PUBLIKSPOR V31 - ZIRHLI MOD (FULL + HATA TOLERANSLI)
 # =============================================================================
 
 # --- 1. AYARLAR VE ŞİFRELER ---
@@ -28,7 +28,7 @@ API_SECRET = "2ITh94OlZ1OYhsnG5XkU9Ot2fEIE4pZVXwF6opp2fl9SnJ8Mmo"
 ACCESS_TOKEN = "1989860228150788096-k2XifKyI27cbSKKWmCZsNJH1Ypg4wW"
 ACCESS_SECRET = "oeRrU4nUR9xfDmR3Sbn26qdcdhjF3uu1xyeMIRmCoZTtb"
 
-# Ntfy (Bildirim)
+# Ntfy (Bildirim Kanalın)
 NTFY_TOPIC = "publikspor_admin"
 
 # Renkler
@@ -68,11 +68,13 @@ model = genai.GenerativeModel('gemini-2.0-flash')
 
 try:
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
-    api = tweepy.API(auth, wait_on_rate_limit=True)
+    # DİKKAT: wait_on_rate_limit=False (Hata verince donsun istemiyoruz, bizim koda düşsün)
+    api = tweepy.API(auth, wait_on_rate_limit=False)
+    
     client = tweepy.Client(
         consumer_key=API_KEY, consumer_secret=API_SECRET,
         access_token=ACCESS_TOKEN, access_token_secret=ACCESS_SECRET,
-        wait_on_rate_limit=True
+        wait_on_rate_limit=False
     )
     print("✅ Twitter Bağlantısı Başarılı.")
 except Exception as e:
@@ -102,7 +104,6 @@ def turkiye_saati():
     return tr_now.strftime('%H:%M')
 
 def clickbait_temizle(metin):
-    # HTML Temizliği
     metin = html.unescape(metin)
     yasakli = ["CANLI İZLE", "ŞİFRESİZ", "BEDAVA", "DONMADAN", "LİNK", "TIKLA", "İZLE", "JUSTIN TV"]
     temiz = metin
@@ -268,23 +269,26 @@ def fikstur_gorseli_olustur(maclar):
 # --- 5. GÖREV YÖNETİCİLERİ ---
 
 def siteyi_analiz_et(url):
-    print("🕵️‍♂️ Site Analizi (Derin Okuma)...")
+    print("🕵️‍♂️ Site Analizi (Metin + Görsel)...")
     headers = {'User-Agent': 'Mozilla/5.0'}
     media_id = None; sayfa_metni = ""
     try:
         r = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(r.content, 'html.parser')
         
+        # Görsel Yükleme Denemesi
         img_tag = soup.find("meta", property="og:image")
         if img_tag and img_tag.get("content"):
             try:
-                img_data = requests.get(img_tag["content"], headers=headers).content
+                img_data = requests.get(img_tag["content"], headers=headers, timeout=5).content
                 with open("temp.jpg", "wb") as f: f.write(img_data)
                 media = api.media_upload("temp.jpg")
                 media_id = media.media_id
                 os.remove("temp.jpg")
-            except: pass
-            
+                print("📸 Görsel yüklendi.")
+            except Exception as e:
+                print(f"⚠️ Görsel Yükleme Hatası: {e} (Metin devam edecek)")
+
         tags = soup.find_all(['p', 'h1', 'h2', 'article', 'div'])
         metinler = [t.text.strip() for t in tags if len(t.text.strip()) > 20]
         sayfa_metni = " ".join(metinler)[:3000]
@@ -325,7 +329,6 @@ def gorev_haber_taramasi():
                         3. Soru sorma. Robot olma. Akıcı yaz.
                         4. Emoji abartma.
                         """
-                        
                         metin = ai_tweet_yaz(prompt)
                         if not metin: metin = baslik_temiz
                         
@@ -341,6 +344,11 @@ def gorev_haber_taramasi():
                             time.sleep(60)
                         except Exception as e: 
                             print(f"🔴 TWEET HATASI: {e}")
+                            
+                            # Hata alsa bile bu haberi PAS GEÇ (Tıkanıklık Önleyici)
+                            log_kaydet(link) 
+                            print("⚠️ Haber sorunlu, atlandı.")
+                            
                             if "429" in str(e):
                                 bildirim_gonder("HATA", "Twitter 429 Cezası. 15dk Mola.", "high")
                                 time.sleep(900)
@@ -437,32 +445,23 @@ def gorev_canli_skor():
 # --- WEB SERVER (RENDER İÇİN) ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "PublikSpor Botu Calisiyor! 🚀"
+def home(): return "PublikSpor V31 Online 🚀"
 def run_flask(): app.run(host='0.0.0.0', port=10000)
 
 # --- BAŞLAT ---
 def programi_baslat():
-    print("🌍 PUBLIKSPOR V30 (PLATINUM) Başlatıldı...")
-    
-    bildirim_gonder("Sistem Başladı", "Bot başarıyla aktif oldu.", "high")
-    
+    print("🌍 PUBLIKSPOR V31 (ZIRHLI MOD) Başlatıldı...")
+    bildirim_gonder("Sistem Başladı", "Bot aktif.", "high")
     t = threading.Thread(target=run_flask)
     t.daemon = True; t.start()
-    
     gorev_haber_taramasi()
-    
     schedule.every(5).minutes.do(gorev_haber_taramasi)
     schedule.every(1).minutes.do(gorev_canli_skor)
     schedule.every().friday.at("09:00").do(gorev_fikstur_paylas)
-    
     while True:
         try: schedule.run_pending(); time.sleep(1)
-        except KeyboardInterrupt:
-            print("\n🛑 Bot durduruldu.")
-            break
-        except Exception as e:
-            print(f"Ana Döngü Hatası: {e}")
-            time.sleep(60)
+        except KeyboardInterrupt: break
+        except Exception as e: print(f"Hata: {e}"); time.sleep(60)
 
 if __name__ == "__main__":
     programi_baslat()
