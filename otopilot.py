@@ -16,7 +16,7 @@ from flask import Flask
 import threading
 
 # =============================================================================
-# 🌍 PUBLIKSPOR V31 - ZIRHLI MOD (FULL + HATA TOLERANSLI)
+# 🌍 PUBLIKSPOR V32 - PLATINUM EDITION (FULL NOTIFICATIONS + DEEP CONTENT)
 # =============================================================================
 
 # --- 1. AYARLAR VE ŞİFRELER ---
@@ -68,9 +68,7 @@ model = genai.GenerativeModel('gemini-2.0-flash')
 
 try:
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
-    # DİKKAT: wait_on_rate_limit=False (Hata verince donsun istemiyoruz, bizim koda düşsün)
     api = tweepy.API(auth, wait_on_rate_limit=False)
-    
     client = tweepy.Client(
         consumer_key=API_KEY, consumer_secret=API_SECRET,
         access_token=ACCESS_TOKEN, access_token_secret=ACCESS_SECRET,
@@ -86,7 +84,7 @@ def bildirim_gonder(baslik, mesaj, oncelik="default"):
         requests.post(
             f"https://ntfy.sh/{NTFY_TOPIC}",
             data=mesaj.encode('utf-8'),
-            headers={"Title": baslik.encode('utf-8'), "Priority": oncelik}
+            headers={"Title": baslik.encode('utf-8'), "Priority": oncelik, "Tags": "robot"}
         )
     except: pass
 
@@ -104,6 +102,7 @@ def turkiye_saati():
     return tr_now.strftime('%H:%M')
 
 def clickbait_temizle(metin):
+    # HTML karakter düzeltme
     metin = html.unescape(metin)
     yasakli = ["CANLI İZLE", "ŞİFRESİZ", "BEDAVA", "DONMADAN", "LİNK", "TIKLA", "İZLE", "JUSTIN TV"]
     temiz = metin
@@ -269,14 +268,14 @@ def fikstur_gorseli_olustur(maclar):
 # --- 5. GÖREV YÖNETİCİLERİ ---
 
 def siteyi_analiz_et(url):
-    print("🕵️‍♂️ Site Analizi (Metin + Görsel)...")
+    print("🕵️‍♂️ Site Analizi (Derin Okuma)...")
     headers = {'User-Agent': 'Mozilla/5.0'}
     media_id = None; sayfa_metni = ""
     try:
         r = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(r.content, 'html.parser')
         
-        # Görsel Yükleme Denemesi
+        # Görsel (Hata toleranslı)
         img_tag = soup.find("meta", property="og:image")
         if img_tag and img_tag.get("content"):
             try:
@@ -286,19 +285,19 @@ def siteyi_analiz_et(url):
                 media_id = media.media_id
                 os.remove("temp.jpg")
                 print("📸 Görsel yüklendi.")
-            except Exception as e:
-                print(f"⚠️ Görsel Yükleme Hatası: {e} (Metin devam edecek)")
+            except: print("⚠️ Görsel alınamadı (Metin devam)")
 
-        tags = soup.find_all(['p', 'h1', 'h2', 'article', 'div'])
-        metinler = [t.text.strip() for t in tags if len(t.text.strip()) > 20]
-        sayfa_metni = " ".join(metinler)[:3000]
+        # Metin (Daha geniş tarama)
+        tags = soup.find_all(['p', 'h1', 'h2', 'h3', 'article', 'div', 'span'])
+        metinler = [t.text.strip() for t in tags if len(t.text.strip()) > 30] # Sadece uzun cümleleri al
+        sayfa_metni = " ".join(metinler)[:4000] # Daha fazla veri al
         
     except Exception as e: print(f"Site Hatası: {e}")
     return media_id, sayfa_metni
 
 def spor_kategorisi_bul(metin):
     m = metin.lower()
-    if any(x in m for x in ["voleybol", "sultanlar", "vargas"]): return "#Voleybol"
+    if any(x in m for x in ["voleybol", "sultanlar"]): return "#Voleybol"
     if any(x in m for x in ["basketbol", "nba", "euroleague"]): return "#Basketbol"
     if any(x in m for x in ["f1", "formula", "yarış"]): return "#F1"
     return "#Futbol"
@@ -319,18 +318,28 @@ def gorev_haber_taramasi():
                         media_id, site_icerigi = siteyi_analiz_et(link)
                         kategori = spor_kategorisi_bul(baslik_temiz + site_icerigi)
                         
+                        # --- AGRESİF DETAYCI PROMPT ---
                         prompt = f"""
-                        Sen profesyonel spor muhabirisin. Haberi Twitter için özetle.
-                        Başlık: {baslik_temiz}
-                        Detaylar: {site_icerigi}
-                        KURALLAR:
-                        1. KİM, KİME, NE DEDİ? Bu detayları ver.
-                        2. Başlığı kopyalama, içeriği yaz.
-                        3. Soru sorma. Robot olma. Akıcı yaz.
-                        4. Emoji abartma.
+                        Sen dedikoducu ama güvenilir bir spor muhabirisin.
+                        Aşağıdaki haberi Twitter için yaz.
+                        
+                        Haber Başlığı: {baslik_temiz}
+                        Haber İçeriği: {site_icerigi}
+                        
+                        KURALLAR (ÇOK ÖNEMLİ):
+                        1. Başlığı sakın kopyalama! İçerikteki "KİM, KİME, NE DEDİ, NEDEN YAPTI" bilgisini bul ve onu yaz.
+                        2. Örnek: "Nihat Kahveci tepki gösterdi" YAZMA. "Nihat Kahveci, İrfan Can'ın pas hatasına isyan etti: Bu nasıl futbol?" YAZ.
+                        3. Örnek: "Ayrılık kararı" YAZMA. "Beşiktaş, teknik direktör Santos ile yollarını ayırdı." YAZ.
+                        4. Soru sorma. Merak uyandırma. Cevabı ver.
+                        5. Emoji abartma.
                         """
+                        
                         metin = ai_tweet_yaz(prompt)
-                        if not metin: metin = baslik_temiz
+                        
+                        # Güvenlik: Kalite kontrol
+                        if not metin or metin == baslik_temiz:
+                            print("⚠️ AI yeterli detay çıkaramadı, tweet iptal.")
+                            continue
                         
                         zaman = turkiye_saati()
                         tweet = f"{metin}\n\n🔗 Kaynak: Basın\n#PublikSpor {kategori}\n⏱ {zaman}"
@@ -338,20 +347,15 @@ def gorev_haber_taramasi():
                         try:
                             if media_id: client.create_tweet(text=tweet, media_ids=[media_id])
                             else: client.create_tweet(text=tweet)
-                            print("🐦 Tweet Atıldı!")
-                            bildirim_gonder("Haber", f"{baslik_temiz}")
+                            
+                            print(f"🐦 Tweet Atıldı: {metin[:50]}...")
+                            bildirim_gonder("Haber", f"{metin}")
                             log_kaydet(link)
                             time.sleep(60)
                         except Exception as e: 
                             print(f"🔴 TWEET HATASI: {e}")
-                            
-                            # Hata alsa bile bu haberi PAS GEÇ (Tıkanıklık Önleyici)
-                            log_kaydet(link) 
-                            print("⚠️ Haber sorunlu, atlandı.")
-                            
-                            if "429" in str(e):
-                                bildirim_gonder("HATA", "Twitter 429 Cezası. 15dk Mola.", "high")
-                                time.sleep(900)
+                            if "429" in str(e): time.sleep(900)
+                            else: log_kaydet(link) # Bağlantı hatasıysa geç
         except: pass
 
 def gorev_fikstur_paylas():
@@ -412,6 +416,7 @@ def gorev_canli_skor():
                 elif lig == "UCL" and ("GALATASARAY" in ev_ad or "GALATASARAY" in dep_ad): onemli = True
 
                 if onemli:
+                    # GOL
                     if durum == 'in' and eski != skor:
                         tag = mac_hashtag(ev_ad, dep_ad)
                         tweet = f"⚽ GOL! {ev_ad} {skor} {dep_ad} #PublikSpor {tag}"
@@ -421,6 +426,7 @@ def gorev_canli_skor():
                             bildirim_gonder("GOL!", f"{ev_ad} {skor} {dep_ad}", "high")
                         except: pass
                     
+                    # MAÇ SONU
                     if durum == 'post':
                         ms_key = f"MS_{mac_id}"
                         if not log_kontrol(ms_key):
@@ -438,26 +444,33 @@ def gorev_canli_skor():
                                 print(f"🏁 MS Görseli Paylaşıldı: {skor}")
                                 bildirim_gonder("Maç Bitti", f"{ev_ad} {skor} {dep_ad}")
                                 os.remove(img_dosya)
-                            except Exception as e: print(f"MS Hatası: {e}")
+                            except Exception as e: 
+                                print(f"MS Hatası: {e}")
+                                bildirim_gonder("HATA", f"Görsel oluşturulamadı: {e}", "urgent")
+                
                 SKOR_HAFIZASI[mac_id] = skor
         except: pass
 
 # --- WEB SERVER (RENDER İÇİN) ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "PublikSpor V31 Online 🚀"
+def home(): return "PublikSpor Botu Calisiyor! 🚀"
 def run_flask(): app.run(host='0.0.0.0', port=10000)
 
 # --- BAŞLAT ---
 def programi_baslat():
-    print("🌍 PUBLIKSPOR V31 (ZIRHLI MOD) Başlatıldı...")
-    bildirim_gonder("Sistem Başladı", "Bot aktif.", "high")
+    print("🌍 PUBLIKSPOR V32 (PLATINUM EDITION) Başlatıldı...")
+    bildirim_gonder("Sistem Başladı", "Bot başarıyla aktif oldu.", "high")
     t = threading.Thread(target=run_flask)
     t.daemon = True; t.start()
+    
+    # İlk tarama
     gorev_haber_taramasi()
+    
     schedule.every(5).minutes.do(gorev_haber_taramasi)
     schedule.every(1).minutes.do(gorev_canli_skor)
     schedule.every().friday.at("09:00").do(gorev_fikstur_paylas)
+    
     while True:
         try: schedule.run_pending(); time.sleep(1)
         except KeyboardInterrupt: break
