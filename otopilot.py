@@ -16,7 +16,7 @@ from flask import Flask
 import threading
 
 # =============================================================================
-# 🌍 PUBLIKSPOR V32 - PLATINUM EDITION (FULL NOTIFICATIONS + DEEP CONTENT)
+# 🌍 PUBLIKSPOR V32 - FINAL UNLEASHED (TAM KADRO + AKILLI AI)
 # =============================================================================
 
 # --- 1. AYARLAR VE ŞİFRELER ---
@@ -68,6 +68,7 @@ model = genai.GenerativeModel('gemini-2.0-flash')
 
 try:
     auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
+    # DİKKAT: wait_on_rate_limit=False
     api = tweepy.API(auth, wait_on_rate_limit=False)
     client = tweepy.Client(
         consumer_key=API_KEY, consumer_secret=API_SECRET,
@@ -84,7 +85,7 @@ def bildirim_gonder(baslik, mesaj, oncelik="default"):
         requests.post(
             f"https://ntfy.sh/{NTFY_TOPIC}",
             data=mesaj.encode('utf-8'),
-            headers={"Title": baslik.encode('utf-8'), "Priority": oncelik, "Tags": "robot"}
+            headers={"Title": baslik.encode('utf-8'), "Priority": oncelik}
         )
     except: pass
 
@@ -289,8 +290,8 @@ def siteyi_analiz_et(url):
 
         # Metin (Daha geniş tarama)
         tags = soup.find_all(['p', 'h1', 'h2', 'h3', 'article', 'div', 'span'])
-        metinler = [t.text.strip() for t in tags if len(t.text.strip()) > 30] # Sadece uzun cümleleri al
-        sayfa_metni = " ".join(metinler)[:4000] # Daha fazla veri al
+        metinler = [t.text.strip() for t in tags if len(t.text.strip()) > 30]
+        sayfa_metni = " ".join(metinler)[:4000] 
         
     except Exception as e: print(f"Site Hatası: {e}")
     return media_id, sayfa_metni
@@ -299,7 +300,7 @@ def spor_kategorisi_bul(metin):
     m = metin.lower()
     if any(x in m for x in ["voleybol", "sultanlar"]): return "#Voleybol"
     if any(x in m for x in ["basketbol", "nba", "euroleague"]): return "#Basketbol"
-    if any(x in m for x in ["f1", "formula", "yarış"]): return "#F1"
+    if any(x in m for x in ["f1", "formula"]): return "#F1"
     return "#Futbol"
 
 def gorev_haber_taramasi():
@@ -336,10 +337,11 @@ def gorev_haber_taramasi():
                         
                         metin = ai_tweet_yaz(prompt)
                         
-                        # Güvenlik: Kalite kontrol
+                        # --- DÜZELTME: EĞER AI BOŞ DÖNERSE YEDEK PLAN (BAŞLIK) ---
                         if not metin or metin == baslik_temiz:
-                            print("⚠️ AI yeterli detay çıkaramadı, tweet iptal.")
-                            continue
+                            print("⚠️ AI Detay bulamadı, başlık düzenlenip atılıyor...")
+                            prompt_yedek = f"Bu başlığı Twitter için daha ilgi çekici, spiker diliyle yeniden yaz: {baslik_temiz}"
+                            metin = ai_tweet_yaz(prompt_yedek) or baslik_temiz
                         
                         zaman = turkiye_saati()
                         tweet = f"{metin}\n\n🔗 Kaynak: Basın\n#PublikSpor {kategori}\n⏱ {zaman}"
@@ -460,11 +462,13 @@ def run_flask(): app.run(host='0.0.0.0', port=10000)
 # --- BAŞLAT ---
 def programi_baslat():
     print("🌍 PUBLIKSPOR V32 (PLATINUM EDITION) Başlatıldı...")
+    
     bildirim_gonder("Sistem Başladı", "Bot başarıyla aktif oldu.", "high")
+    
     t = threading.Thread(target=run_flask)
     t.daemon = True; t.start()
     
-    # İlk tarama
+    # İlk Taramalar
     gorev_haber_taramasi()
     
     schedule.every(5).minutes.do(gorev_haber_taramasi)
@@ -473,8 +477,12 @@ def programi_baslat():
     
     while True:
         try: schedule.run_pending(); time.sleep(1)
-        except KeyboardInterrupt: break
-        except Exception as e: print(f"Hata: {e}"); time.sleep(60)
+        except KeyboardInterrupt:
+            print("\n🛑 Bot durduruldu.")
+            break
+        except Exception as e:
+            print(f"Ana Döngü Hatası: {e}")
+            time.sleep(60)
 
 if __name__ == "__main__":
     programi_baslat()
