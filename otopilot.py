@@ -279,6 +279,7 @@ def siteyi_analiz_et(url):
         r = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(r.content, 'html.parser')
         
+        # Görsel (Hata toleranslı)
         img_tag = soup.find("meta", property="og:image")
         if img_tag and img_tag.get("content"):
             try:
@@ -349,7 +350,8 @@ def gorev_haber_taramasi():
                         elif "f1" in kategori.lower(): hashtag += " #F1"
                         else: hashtag += " #Futbol"
 
-                        tweet = f"{metin}\n\n🔗 Detaylar: {link}\n{hashtag}\n⏱ {zaman}"
+                        # DÜZELTME BURADA: LİNK KALDIRILDI
+                        tweet = f"{metin}\n\n{hashtag}\n⏱ {zaman}"
                         
                         try:
                             if media_id: client.create_tweet(text=tweet, media_ids=[media_id])
