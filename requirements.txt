@@ -6,3 +6,5 @@ google-generativeai
 beautifulsoup4
 Pillow
 flask
+trafilatura
+lxml_html_clean
