@@ -17,7 +17,7 @@ from flask import Flask
 import threading
 
 # =============================================================================
-# 🌍 PUBLIKSPOR V36 - SCRAPER PRO (TAM KADRO + TRAFILATURA)
+# 🌍 PUBLIKSPOR V37 - FINAL (TAM KADRO + LİNK YOK)
 # =============================================================================
 
 # --- 1. AYARLAR VE ŞİFRELER ---
@@ -358,6 +358,7 @@ def gorev_haber_taramasi():
                         """
                         
                         metin = ai_tweet_yaz(prompt)
+                        
                         if not metin: 
                             print("⚠️ AI yanıt vermedi, başlık kullanılıyor.")
                             metin = baslik_temiz
@@ -369,7 +370,8 @@ def gorev_haber_taramasi():
                         elif "f1" in kategori.lower(): hashtag += " #F1"
                         else: hashtag += " #Futbol"
 
-                        tweet = f"{metin}\n\n🔗 Detaylar: {link}\n{hashtag}\n⏱ {zaman}"
+                        # DÜZELTME BURADA: LİNK KALDIRILDI
+                        tweet = f"{metin}\n\n{hashtag}\n⏱ {zaman}"
                         
                         try:
                             if media_id: client.create_tweet(text=tweet, media_ids=[media_id])
@@ -475,12 +477,12 @@ def gorev_canli_skor():
 # --- WEB SERVER (RENDER İÇİN) ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "PublikSpor V36 Online 🚀"
+def home(): return "PublikSpor V37 Online 🚀"
 def run_flask(): app.run(host='0.0.0.0', port=10000)
 
 # --- BAŞLAT ---
 def programi_baslat():
-    print("🌍 PUBLIKSPOR V36 (SCRAPER PRO) Başlatıldı...")
+    print("🌍 PUBLIKSPOR V37 (FINAL) Başlatıldı...")
     bildirim_gonder("Sistem Başladı", "Bot başarıyla aktif oldu.", "high")
     t = threading.Thread(target=run_flask)
     t.daemon = True; t.start()
