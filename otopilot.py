@@ -7,9 +7,8 @@ import datetime
 import os
 import re
 import html
-import random
 import google.generativeai as genai
-import trafilatura # YENİ GÜÇLÜ KÜTÜPHANE
+import trafilatura
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
@@ -18,7 +17,7 @@ from flask import Flask
 import threading
 
 # =============================================================================
-# 🌍 PUBLIKSPOR V36 - SCRAPER PRO (TRAFILATURA + HYBRID PARSER)
+# 🌍 PUBLIKSPOR V36 - SCRAPER PRO (TAM KADRO + TRAFILATURA)
 # =============================================================================
 
 # --- 1. AYARLAR VE ŞİFRELER ---
@@ -124,14 +123,11 @@ def ai_tweet_yaz(prompt):
     try:
         response = model.generate_content(prompt)
         text = response.text.strip().replace('"','')
-        
-        # Yarım cümle kontrolü: Eğer son karakter nokta, ünlem veya soru işareti değilse düzelt
         if text and text[-1] not in ['.', '!', '?']:
-            # Son noktaya kadar olan kısmı al (Yarım kalanı sil)
             if '.' in text:
                 text = text.rsplit('.', 1)[0] + "."
             else:
-                text += "." # Hiç nokta yoksa sonuna ekle
+                text += "."
         return text
     except: return None
 
@@ -279,17 +275,15 @@ def fikstur_gorseli_olustur(maclar):
 
 # --- 5. GÖREV YÖNETİCİLERİ ---
 
-# YENİLENMİŞ GÜÇLÜ SCRAPER (Trafilatura + Custom Parser)
 def siteyi_analiz_et(url):
     print("🕵️‍♂️ Site Analizi (Trafilatura)...")
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     media_id = None; sayfa_metni = ""
-    
     try:
-        # 1. Önce Resmi Al (Requests ile)
         r = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(r.content, 'html.parser')
         
+        # 1. Görseli Al
         img_tag = soup.find("meta", property="og:image")
         if img_tag and img_tag.get("content"):
             try:
@@ -301,39 +295,27 @@ def siteyi_analiz_et(url):
                 print("📸 Görsel yüklendi.")
             except: print("⚠️ Görsel alınamadı.")
 
-        # 2. Metni Al (Trafilatura ile)
+        # 2. Metni Trafilatura ile Al
         try:
             downloaded = trafilatura.fetch_url(url)
             sayfa_metni = trafilatura.extract(downloaded)
-        except:
-            sayfa_metni = None
+        except: sayfa_metni = None
 
-        # 3. Eğer Trafilatura başarısızsa manuel yedekler (Custom Parsers)
+        # 3. Trafilatura Başarısızsa Manuel Devam Et
         if not sayfa_metni or len(sayfa_metni) < 50:
-            print("⚠️ Trafilatura yetersiz, manuel moda geçiliyor...")
+            if "ntv.com.tr" in url: target = soup.find("div", class_="category-detail")
+            elif "cumhuriyet.com.tr" in url: target = soup.find("div", class_="article-body")
+            elif "haberler.com" in url: target = soup.find("main")
+            elif "eurohoops" in url: target = soup.find("div", class_="post-content")
+            else: target = None
             
-            # Siteye özel seçiciler
-            if "ntv.com.tr" in url:
-                target = soup.find("div", class_="category-detail")
-            elif "cumhuriyet.com.tr" in url:
-                target = soup.find("div", class_="article-body")
-            elif "haberler.com" in url:
-                target = soup.find("main")
-            elif "eurohoops" in url:
-                target = soup.find("div", class_="post-content")
+            if target: sayfa_metni = target.get_text(separator=" ", strip=True)
             else:
-                target = None # Genel arama
-            
-            if target:
-                sayfa_metni = target.get_text(separator=" ", strip=True)
-            else:
-                # En kötü ihtimalle tüm paragrafları topla
                 ps = soup.find_all('p')
                 sayfa_metni = " ".join([p.text.strip() for p in ps if len(p.text.strip()) > 30])
 
         sayfa_metni = sayfa_metni[:4000] if sayfa_metni else ""
         print(f"📄 Okunan Metin: {len(sayfa_metni)} karakter")
-        
     except Exception as e: print(f"Site Hatası: {e}")
     return media_id, sayfa_metni
 
@@ -360,7 +342,6 @@ def gorev_haber_taramasi():
                         media_id, site_icerigi = siteyi_analiz_et(link)
                         kategori = spor_kategorisi_bul(baslik_temiz + site_icerigi)
                         
-                        # --- YENİLENMİŞ AGRESİF PROMPT ---
                         prompt = f"""
                         Sen profesyonel bir spor muhabirisin.
                         Şu haberi Twitter için (X) özetle.
@@ -377,7 +358,6 @@ def gorev_haber_taramasi():
                         """
                         
                         metin = ai_tweet_yaz(prompt)
-                        
                         if not metin: 
                             print("⚠️ AI yanıt vermedi, başlık kullanılıyor.")
                             metin = baslik_temiz
@@ -389,8 +369,7 @@ def gorev_haber_taramasi():
                         elif "f1" in kategori.lower(): hashtag += " #F1"
                         else: hashtag += " #Futbol"
 
-                        # DÜZELTME BURADA: LİNK KALDIRILDI
-                        tweet = f"{metin}\n\n{hashtag}\n⏱ {zaman}"
+                        tweet = f"{metin}\n\n🔗 Detaylar: {link}\n{hashtag}\n⏱ {zaman}"
                         
                         try:
                             if media_id: client.create_tweet(text=tweet, media_ids=[media_id])
@@ -407,8 +386,40 @@ def gorev_haber_taramasi():
 
 def gorev_fikstur_paylas():
     print("📅 Fikstür Verisi Alınıyor...")
-    # (Yukarıda tanımlı olduğu için schedule içinde çalışır)
-    pass
+    today = datetime.datetime.now()
+    end_date = today + datetime.timedelta(days=7)
+    date_str = f"{today.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}"
+    url = f"http://site.api.espn.com/apis/site/v2/sports/soccer/tur.1/scoreboard?dates={date_str}"
+    
+    try:
+        r = requests.get(url, timeout=10).json()
+        events = r.get('events', [])
+        if not events: return
+        
+        maclar = []
+        for e in events:
+            tarih_obj = datetime.datetime.strptime(e['date'], "%Y-%m-%dT%H:%MZ") + datetime.timedelta(hours=3)
+            tarih_str = tarih_obj.strftime("%d.%m")
+            gun_ing = tarih_obj.strftime("%a")
+            gun_str = {"Mon":"Pzt", "Tue":"Sal", "Wed":"Çar", "Thu":"Per", "Fri":"Cum", "Sat":"Cmt", "Sun":"Paz"}.get(gun_ing, gun_ing)
+            saat_str = tarih_obj.strftime("%H:%M")
+            ev = e['competitions'][0]['competitors'][0]['team']['displayName'].upper()
+            dep = e['competitions'][0]['competitors'][1]['team']['displayName'].upper()
+            maclar.append({'tarih_str': f"{tarih_str} {gun_str}", 'saat': saat_str, 'ev': ev, 'dep': dep, 'tarih_obj': tarih_obj})
+        
+        maclar = sorted(maclar, key=lambda x: x['tarih_obj'])
+        dosya = fikstur_gorseli_olustur(maclar)
+        
+        if dosya:
+            metin = "📅 Süper Lig'de Bu Hafta!\n\nZorlu karşılaşmalar bizleri bekliyor. İşte haftanın programı. 👇\n\n#SüperLig #Fikstür #PublikSpor"
+            try:
+                media = api.media_upload(dosya)
+                client.create_tweet(text=metin, media_ids=[media.media_id])
+                print("✅ Fikstür Tweeti Atıldı!")
+                bildirim_gonder("Fikstür", "Haftalık Program Paylaşıldı")
+                os.remove(dosya)
+            except Exception as e: print(f"Fikstür Hatası: {e}")
+    except: pass
 
 def gorev_canli_skor():
     print(f"⚽ [{turkiye_saati()}] Skorlar...")
