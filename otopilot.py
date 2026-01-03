@@ -17,7 +17,7 @@ from flask import Flask
 import threading
 
 # =============================================================================
-# 🌍 PUBLIKSPOR V39 - DERBİ ÖZEL (DERBY MODE + FULL FEATURES)
+# 🌍 PUBLIKSPOR V41 - NET GAZETECİ MODU (FİKSTÜR EKLENDİ + TAM KADRO)
 # =============================================================================
 
 # --- 1. AYARLAR VE ŞİFRELER ---
@@ -357,7 +357,7 @@ def gorev_tarihte_bugun():
     except Exception as e:
         print(f"Tarihte Bugün Hatası: {e}")
 
-# --- YENİ EKLENEN ÖZELLİK 2: DERBİ GÜNÜ MODU ---
+# --- ÖZELLİK 2: DERBİ GÜNÜ MODU ---
 def gorev_derbi_kontrol():
     print("🔥 Derbi Kontrolü Yapılıyor...")
     try:
@@ -402,6 +402,7 @@ def gorev_derbi_kontrol():
     except Exception as e:
         print(f"Derbi Modu Hatası: {e}")
 
+# --- HABER TARAMASI (PROMPT GÜNCELLENDİ) ---
 def gorev_haber_taramasi():
     print(f"📰 [{turkiye_saati()}] Haberler Taranıyor...")
     for url in RSS_KAYNAKLARI:
@@ -418,20 +419,22 @@ def gorev_haber_taramasi():
                         media_id, site_icerigi = siteyi_analiz_et(link)
                         kategori = spor_kategorisi_bul(baslik_temiz + site_icerigi)
                         
+                        # --- YENİLENMİŞ NET GAZETECİ PROMPTU ---
                         prompt = f"""
-                        Sen profesyonel bir spor muhabirisin.
-                        Şu haberi Twitter için (X) özetle.
+                        Sen araştırmacı bir spor gazetecisisin.
+                        Aşağıdaki haberi Twitter için yazacaksın.
                         
                         BAŞLIK: {baslik_temiz}
-                        HABERİN İÇERİĞİ: {site_icerigi}
+                        İÇERİK: {site_icerigi}
                         
-                        GÖREVLER:
-                        1. Başlığı sakın kopyalama! İçerikten "KİM, NE DEDİ, NE YAPTI" bilgisini çek ve onu yaz.
-                        2. Eğer içerikte detay yoksa (boşsa), başlığı merak uyandırıcı bir soruya çevir.
-                        3. Asla yarım cümle bırakma. Cümle bitmiyorsa sonuna nokta koy.
-                        4. Maksimum 2 cümle olsun.
-                        5. Resmi, ciddi ama akıcı ol.
+                        GÖREVLERİN (KESİN UYULACAK):
+                        1. Eğer başlık bir soru soruyorsa (Örn: "Icardi'ye kim talip?", "O isim geliyor mu?") cevabı metnin içinden bul ve TWEETİN İLK CÜMLESİNE yaz.
+                        2. Asla okuyucuyu merakta bırakma. "İşte o isim", "Detaylar haberde" gibi ifadeler KULLANMA.
+                        3. İsimleri, rakamları ve takımları net ver. (Örn: "Beşiktaş, Trabzonspor'u yendi" yerine "Beşiktaş, Trabzonspor'u 2-0 yendi.")
+                        4. Başlıkta 'Kötü haber', 'Sürpriz' gibi ifadeler varsa, bunun ne olduğunu açıkla.
+                        5. Resmi, ciddi ama akıcı ol. Asla yarım cümle bırakma.
                         """
+                        # ------------------------------------
                         
                         metin = ai_tweet_yaz(prompt)
                         
@@ -446,7 +449,7 @@ def gorev_haber_taramasi():
                         elif "f1" in kategori.lower(): hashtag += " #F1"
                         else: hashtag += " #Futbol"
 
-                        # DÜZELTME BURADA: LİNK KALDIRILDI
+                        # Link YOK
                         tweet = f"{metin}\n\n{hashtag}\n⏱ {zaman}"
                         
                         try:
@@ -464,8 +467,40 @@ def gorev_haber_taramasi():
 
 def gorev_fikstur_paylas():
     print("📅 Fikstür Verisi Alınıyor...")
-    # (Yukarıda tanımlı)
-    pass # Schedule kısmında var
+    today = datetime.datetime.now()
+    end_date = today + datetime.timedelta(days=7)
+    date_str = f"{today.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}"
+    url = f"http://site.api.espn.com/apis/site/v2/sports/soccer/tur.1/scoreboard?dates={date_str}"
+    
+    try:
+        r = requests.get(url, timeout=10).json()
+        events = r.get('events', [])
+        if not events: return
+        
+        maclar = []
+        for e in events:
+            tarih_obj = datetime.datetime.strptime(e['date'], "%Y-%m-%dT%H:%MZ") + datetime.timedelta(hours=3)
+            tarih_str = tarih_obj.strftime("%d.%m")
+            gun_ing = tarih_obj.strftime("%a")
+            gun_str = {"Mon":"Pzt", "Tue":"Sal", "Wed":"Çar", "Thu":"Per", "Fri":"Cum", "Sat":"Cmt", "Sun":"Paz"}.get(gun_ing, gun_ing)
+            saat_str = tarih_obj.strftime("%H:%M")
+            ev = e['competitions'][0]['competitors'][0]['team']['displayName'].upper()
+            dep = e['competitions'][0]['competitors'][1]['team']['displayName'].upper()
+            maclar.append({'tarih_str': f"{tarih_str} {gun_str}", 'saat': saat_str, 'ev': ev, 'dep': dep, 'tarih_obj': tarih_obj})
+        
+        maclar = sorted(maclar, key=lambda x: x['tarih_obj'])
+        dosya = fikstur_gorseli_olustur(maclar)
+        
+        if dosya:
+            metin = "📅 Süper Lig'de Bu Hafta!\n\nZorlu karşılaşmalar bizleri bekliyor. İşte haftanın programı. 👇\n\n#SüperLig #Fikstür #PublikSpor"
+            try:
+                media = api.media_upload(dosya)
+                client.create_tweet(text=metin, media_ids=[media.media_id])
+                print("✅ Fikstür Tweeti Atıldı!")
+                bildirim_gonder("Fikstür", "Haftalık Program Paylaşıldı")
+                os.remove(dosya)
+            except Exception as e: print(f"Fikstür Hatası: {e}")
+    except: pass
 
 def gorev_canli_skor():
     print(f"⚽ [{turkiye_saati()}] Skorlar...")
@@ -521,12 +556,12 @@ def gorev_canli_skor():
 # --- WEB SERVER (RENDER İÇİN) ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "PublikSpor V39 Online 🚀"
+def home(): return "PublikSpor V41 Online 🚀"
 def run_flask(): app.run(host='0.0.0.0', port=10000)
 
 # --- BAŞLAT ---
 def programi_baslat():
-    print("🌍 PUBLIKSPOR V39 (DERBİ + TARİHTE BUGÜN) Başlatıldı...")
+    print("🌍 PUBLIKSPOR V41 (NET GAZETECİ MODU) Başlatıldı...")
     bildirim_gonder("Sistem Başladı", "Bot başarıyla aktif oldu.", "high")
     t = threading.Thread(target=run_flask)
     t.daemon = True; t.start()
